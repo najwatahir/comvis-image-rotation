@@ -1,5 +1,6 @@
 import struct
 import os
+import math
 
 
 # ==========================================
@@ -260,6 +261,82 @@ def deteksi_tepi(matriks):
     return hasil
 
 
+def tampilkan_informasi_gambar(matriks, info):
+    tinggi = len(matriks)
+    lebar = len(matriks[0])
+    
+    total_piksel = lebar * tinggi
+    
+    nilai_max = 0
+    nilai_min = 255
+    total_intensitas = 0
+    
+    for y in range(tinggi):
+        for x in range(lebar):
+            val = matriks[y][x]
+            if val > nilai_max: 
+                nilai_max = val
+            if val < nilai_min: 
+                nilai_min = val
+            total_intensitas += val
+            
+    rata_rata = total_intensitas / total_piksel
+    
+    bit_depth_aktual = max(1, math.ceil(math.log2(nilai_max + 1)))
+    
+    print("\n==========================================")
+    print("      INFORMASI DETAIL CITRA (GAMBAR)       ")
+    print("==========================================")
+    print("[1] Properti File:")
+    print(f"    - Format File : {info.get('format', 'BMP')}")
+    print(f"    - Ukuran File : {info.get('file_size', 0)} byte")
+    print(f"    - Offset Data : {info.get('pixel_offset', 0)} byte")
+    
+    print("\n[2] Resolusi:")
+    print(f"    - Dimensi     : {lebar} x {tinggi} piksel")
+    print(f"    - Total Piksel: {total_piksel} piksel")
+    
+    print("\n[3] Kedalaman Warna (Color Depth):")
+    print(f"    - Bit Depth Header : {info.get('bit_depth', 8)} bit")
+    print(f"    - Aktual Terpakai  : {bit_depth_aktual} bit (karena max intensitas {nilai_max})")
+    
+    print("\n[4] Intensitas Warna:")
+    print(f"    - Intensitas Minimum : {nilai_min}")
+    print(f"    - Intensitas Maksimum: {nilai_max}")
+    print(f"    - Rata-rata (Mean)   : {rata_rata:.2f}")
+    print("==========================================\n")
+
+
+def cek_titik_koordinat(matriks):
+    tinggi = len(matriks)
+    lebar = len(matriks[0])
+    
+    print("\n--- CEK INTENSITAS PIKSEL ---")
+    print(f"Batas X: 0 s.d {lebar - 1}")
+    print(f"Batas Y: 0 s.d {tinggi - 1}")
+    
+    while True:
+        try:
+            x_input = input("\nMasukkan koordinat X (ketik 'q' untuk kembali ke menu): ").strip()
+            if x_input.lower() == 'q':
+                break
+            x = int(x_input)
+            
+            y_input = input("Masukkan koordinat Y (ketik 'q' untuk kembali ke menu): ").strip()
+            if y_input.lower() == 'q':
+                break
+            y = int(y_input)
+            
+            if 0 <= x < lebar and 0 <= y < tinggi:
+                intensitas = matriks[y][x]
+                print(f"[HASIL] Intensitas warna di koordinat (X={x}, Y={y}) adalah: {intensitas}")
+            else:
+                print(f"[WARNING] Koordinat melebihi batas! Maksimal X={lebar-1}, Y={tinggi-1}")
+                
+        except ValueError:
+            print("[ERROR] Masukkan angka bilangan bulat atau huruf 'q' untuk keluar.")
+
+
 # ==========================================
 # 5. MENU UTAMA (CLI)
 # ==========================================
@@ -297,13 +374,23 @@ def main():
         print("4. Rotasi 90 Derajat")
         print("5. Noise Reduction (Smoothing)")
         print("6. Deteksi Tepi (Edge Detection)")
+        print("7. Informasi Detail Gambar")
+        print("8. Cek Intensitas Piksel (Koordinat)")
         print("0. Keluar Program")
 
-        pilihan = input("\nMasukkan nomor pilihan (0-6): ").strip()
+        pilihan = input("\nMasukkan nomor pilihan (0-8): ").strip()
 
         if pilihan == '0':
             print("Keluar dari program. Terima kasih!")
             break
+
+        if pilihan == '7':
+            tampilkan_informasi_gambar(matriks_asli, info)
+            continue
+            
+        if pilihan == '8':
+            cek_titik_koordinat(matriks_asli)
+            continue
 
         output_nama = input("Masukkan nama file hasil (contoh: hasil.bmp): ").strip()
         if not output_nama.lower().endswith('.bmp'):
