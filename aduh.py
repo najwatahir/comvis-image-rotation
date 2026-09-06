@@ -22,34 +22,85 @@ def konversi_ke_bmp(filepath_input, filepath_output=None):
 # 1. BACA INFO HEADER BMP (MANUAL, TANPA LIBRARY)
 # ==========================================
 def baca_info_bmp(filepath):
-    """Membaca header BMP secara manual menggunakan struct."""
+    """
+    Membaca header BMP secara manual menggunakan module struct.
+    Menampilkan dan membedah posisi byte serta bit untuk setiap informasi header.
+    """
     if not os.path.exists(filepath):
-        return {"error": "File tidak ditemukan"}
+        return {"error": f"File '{filepath}' tidak ditemukan"}
 
     try:
         with open(filepath, 'rb') as f:
-            # --- File Header (14 byte) ---
+            # ===================================================================
+            # 1. BITMAP FILE HEADER (Ukuran: 14 Byte / 112 Bit, Offset: Byte 0 - 13)
+            # ===================================================================
+
+            # [Byte 0 - 1] -> 2 Byte (16 Bit, Bit 0 - 15)
+            # Signature file BMP, harus bernilai b'BM' (0x42, 0x4D dalam ASCII)
             signature = f.read(2)
             if signature != b'BM':
                 return {"error": "Bukan file BMP valid (signature bukan 'BM')"}
 
+            # [Byte 2 - 5] -> 4 Byte (32 Bit, Bit 16 - 47)
+            # Ukuran total file BMP dalam satuan Byte (unsigned integer 32-bit: <I)
             file_size, = struct.unpack('<I', f.read(4))
-            f.read(4)  # reserved
+
+            # [Byte 6 - 9] -> 4 Byte (32 Bit, Bit 48 - 79)
+            # Reserved / dicadangkan oleh aplikasi pembuat (biasanya bernilai 0)
+            reserved = f.read(4)
+
+            # [Byte 10 - 13] -> 4 Byte (32 Bit, Bit 80 - 111)
+            # Offset (alamat byte awal) di mana data array piksel dimulai (uint32: <I)
             pixel_offset, = struct.unpack('<I', f.read(4))
 
-            # --- DIB Header ---
+            # ===================================================================
+            # 2. DIB HEADER (BITMAPINFOHEADER / BITMAPCOREHEADER)
+            # (Dimulai dari Offset Byte 14 / Bit 112)
+            # ===================================================================
+
+            # [Byte 14 - 17] -> 4 Byte (32 Bit, Bit 112 - 143)
+            # Ukuran DIB Header (umumnya 40 Byte untuk BITMAPINFOHEADER standar)
             dib_size, = struct.unpack('<I', f.read(4))
 
-            if dib_size == 12:  # BITMAPCOREHEADER (jarang)
+            if dib_size == 12:
+                # --- Format Lama / BITMAPCOREHEADER (Total 12 Byte) ---
+                # [Byte 18 - 19] -> 2 Byte (16 Bit): Lebar citra (uint16: <H)
+                # [Byte 20 - 21] -> 2 Byte (16 Bit): Tinggi citra (uint16: <H)
                 width, height = struct.unpack('<HH', f.read(4))
-                f.read(2)  # planes
+
+                # [Byte 22 - 23] -> 2 Byte (16 Bit): Color planes (harus bernilai 1)
+                planes, = struct.unpack('<H', f.read(2))
+
+                # [Byte 24 - 25] -> 2 Byte (16 Bit): Bit depth (bit per piksel: 1, 4, 8, 24)
                 bit_count, = struct.unpack('<H', f.read(2))
                 compression = 0
-            else:  # BITMAPINFOHEADER (40 byte) atau lebih besar
+
+            else:
+                # --- Format Modern / BITMAPINFOHEADER (Total 40 Byte atau lebih) ---
+                # [Byte 18 - 21] -> 4 Byte (32 Bit, Bit 144 - 175)
+                # Lebar gambar (Width) dalam piksel (signed integer 32-bit: <i)
+                # [Byte 22 - 25] -> 4 Byte (32 Bit, Bit 176 - 207)
+                # Tinggi gambar (Height) dalam piksel (signed int32: <i).
+                # Catatan: Jika nilai negatif, gambar disimpan secara top-down.
                 width, height = struct.unpack('<ii', f.read(8))
-                f.read(2)  # planes
+
+                # [Byte 26 - 27] -> 2 Byte (16 Bit, Bit 208 - 223)
+                # Color planes (selalu bernilai 1, uint16: <H)
+                planes, = struct.unpack('<H', f.read(2))
+
+                # [Byte 28 - 29] -> 2 Byte (16 Bit, Bit 224 - 239)
+                # Color Depth / Bit Count: jumlah bit per piksel (1, 4, 8, 16, 24, 32 bit)
                 bit_count, = struct.unpack('<H', f.read(2))
+
+                # [Byte 30 - 33] -> 4 Byte (32 Bit, Bit 240 - 271)
+                # Tipe kompresi (0 = BI_RGB tanpa kompresi, uint32: <I)
                 compression, = struct.unpack('<I', f.read(4))
+
+                # [Byte 34 - 37] -> 4 Byte (32 Bit, Bit 272 - 303): Ukuran raw data citra (Image Size)
+                # [Byte 38 - 41] -> 4 Byte (32 Bit, Bit 304 - 335): Resolusi Horizontal (Piksel/Meter)
+                # [Byte 42 - 45] -> 4 Byte (32 Bit, Bit 336 - 367): Resolusi Vertikal (Piksel/Meter)
+                # [Byte 46 - 49] -> 4 Byte (32 Bit, Bit 368 - 399): Jumlah warna palet (Colors Used)
+                # [Byte 50 - 53] -> 4 Byte (32 Bit, Bit 400 - 431): Warna penting (Important Colors)
 
             return {
                 'format': 'BMP',
@@ -59,10 +110,12 @@ def baca_info_bmp(filepath):
                 'compression': compression,
                 'pixel_offset': pixel_offset,
                 'top_down': height < 0,
-                'file_size': file_size
+                'file_size': file_size,
+                'planes': planes,
+                'header_size': 14 + dib_size
             }
     except Exception as e:
-        return {"error": f"Terjadi kesalahan: {str(e)}"}
+        return {"error": f"Terjadi kesalahan saat membaca header BMP: {str(e)}"}
 
 
 # ==========================================
@@ -207,12 +260,25 @@ def ubah_brightness(matriks, nilai_tambah):
             hasil[y][x] = batasi_nilai(matriks[y][x] + nilai_tambah)
     return hasil
 
-def ubah_contrast(matriks, faktor):
+def ubah_contrast(matriks, g, p=128):
+    """
+    Peningkatan Kontras (Contrast Enhancement)
+    Sesuai materi Modul / Parameter File (Halaman 15):
+        Ko = G * (Ki - P) + P
+    Di mana:
+        Ki = Nilai piksel input
+        Ko = Nilai piksel output
+        G  = Koefisien penguatan kontras (G > 1: kontras naik, 0 < G < 1: kontras turun)
+        P  = Nilai skala keabuan yang dipakai sebagai pusat pengontrasan (default 128)
+    """
     tinggi, lebar = len(matriks), len(matriks[0])
     hasil = [[0 for _ in range(lebar)] for _ in range(tinggi)]
     for y in range(tinggi):
         for x in range(lebar):
-            hasil[y][x] = batasi_nilai(faktor * (matriks[y][x] - 128) + 128)
+            ki = matriks[y][x]
+            # Rumus Halaman 15: Ko = G * (Ki - P) + P
+            ko = g * (ki - p) + p
+            hasil[y][x] = batasi_nilai(round(ko))
     return hasil
 
 def pencerminan_horizontal(matriks):
@@ -231,18 +297,65 @@ def rotasi_90_derajat(matriks):
             hasil[x][(tinggi - 1) - y] = matriks[y][x]
     return hasil
 
-def noise_reduction_mean(matriks):
+def reduksi_noise_median(matriks, ukuran=3):
+    """
+    Reduksi Noise menggunakan Operasi Median
+    Sesuai materi Modul / Parameter File (Halaman 31):
+        h(x,y) = median(titik-titik di dalam jendela tetangga)
+    Langkah:
+        1. Ambil nilai keabuan titik-titik di dalam jendela (misal 3x3 ada 9 titik).
+        2. Urutkan dari nilai terkecil sampai terbesar.
+        3. Ambil nilai median (nilai yang berada paling tengah).
+    """
     tinggi, lebar = len(matriks), len(matriks[0])
-    hasil = [row[:] for row in matriks]  # salin asli untuk piksel pinggir
+    hasil = [row[:] for row in matriks]  # Salin asli untuk batas tepi
+    radius = ukuran // 2
+
+    for y in range(radius, tinggi - radius):
+        for x in range(radius, lebar - radius):
+            jendela = []
+            for dy in range(-radius, radius + 1):
+                for dx in range(-radius, radius + 1):
+                    jendela.append(matriks[y + dy][x + dx])
+            # Urutkan nilai dari terkecil ke terbesar
+            jendela.sort()
+            # Ambil nilai paling tengah (median)
+            nilai_median = jendela[len(jendela) // 2]
+            hasil[y][x] = batasi_nilai(nilai_median)
+    return hasil
+
+def penghalusan_citra_mean(matriks, mode='9_titik'):
+    """
+    Penghalusan Citra (Smoothing)
+    Sesuai materi Modul / Parameter File (Halaman 29):
+    - Mode '9_titik' (3x3): Setiap elemen diberi bobot 1/9
+    - Mode '5_titik': Mask 5 titik bertetangga (salib) diberi bobot 1/5
+    """
+    tinggi, lebar = len(matriks), len(matriks[0])
+    hasil = [row[:] for row in matriks]
+
     for y in range(1, tinggi - 1):
         for x in range(1, lebar - 1):
-            total = (
-                matriks[y-1][x-1] + matriks[y-1][x] + matriks[y-1][x+1] +
-                matriks[y][x-1]   + matriks[y][x]   + matriks[y][x+1] +
-                matriks[y+1][x-1] + matriks[y+1][x] + matriks[y+1][x+1]
-            )
-            hasil[y][x] = batasi_nilai(total / 9)
+            if mode == '5_titik':
+                # Mask 5 titik bertetangga: atas, bawah, kiri, kanan, tengah (bobot 1/5)
+                total = (
+                    matriks[y-1][x] + matriks[y+1][x] +
+                    matriks[y][x-1] + matriks[y][x+1] + matriks[y][x]
+                )
+                hasil[y][x] = batasi_nilai(round(total / 5.0))
+            else:
+                # Mask 9 titik bertetangga (3x3, bobot 1/9)
+                total = (
+                    matriks[y-1][x-1] + matriks[y-1][x] + matriks[y-1][x+1] +
+                    matriks[y][x-1]   + matriks[y][x]   + matriks[y][x+1] +
+                    matriks[y+1][x-1] + matriks[y+1][x] + matriks[y+1][x+1]
+                )
+                hasil[y][x] = batasi_nilai(round(total / 9.0))
     return hasil
+
+# Alias untuk kompatibilitas nama fungsi lama
+def noise_reduction_mean(matriks):
+    return reduksi_noise_median(matriks, ukuran=3)
 
 def deteksi_tepi(matriks):
     tinggi, lebar = len(matriks), len(matriks[0])
@@ -402,14 +515,26 @@ def main():
             val = int(input("Masukkan nilai brightness (-255 s.d 255): "))
             hasil_matriks = ubah_brightness(matriks_asli, val)
         elif pilihan == '2':
-            val = float(input("Masukkan faktor kontras (misal 1.5 naik, 0.5 turun): "))
-            hasil_matriks = ubah_contrast(matriks_asli, val)
+            val_g = float(input("Masukkan koefisien penguatan kontras G (misal 1.5 naik, 0.5 turun): "))
+            p_input = input("Masukkan nilai pusat pengontrasan P (tekan Enter untuk default 128): ").strip()
+            val_p = int(p_input) if p_input else 128
+            hasil_matriks = ubah_contrast(matriks_asli, val_g, val_p)
         elif pilihan == '3':
             hasil_matriks = pencerminan_horizontal(matriks_asli)
         elif pilihan == '4':
             hasil_matriks = rotasi_90_derajat(matriks_asli)
         elif pilihan == '5':
-            hasil_matriks = noise_reduction_mean(matriks_asli)
+            print("\nPilih Metode Reduksi Noise / Penghalusan:")
+            print("1. Operasi Median (Reduksi Noise - Modul Hal. 31) [Rekomendasi]")
+            print("2. Mask 9 Titik Bertetangga / 3x3 Bobot 1/9 (Penghalusan - Modul Hal. 29)")
+            print("3. Mask 5 Titik Bertetangga Bobot 1/5 (Penghalusan - Modul Hal. 29)")
+            metode_noise = input("Pilihan (1/2/3, default 1): ").strip()
+            if metode_noise == '2':
+                hasil_matriks = penghalusan_citra_mean(matriks_asli, mode='9_titik')
+            elif metode_noise == '3':
+                hasil_matriks = penghalusan_citra_mean(matriks_asli, mode='5_titik')
+            else:
+                hasil_matriks = reduksi_noise_median(matriks_asli, ukuran=3)
         elif pilihan == '6':
             hasil_matriks = deteksi_tepi(matriks_asli)
         else:
