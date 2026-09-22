@@ -359,18 +359,42 @@ def noise_reduction_mean(matriks):
 
 def deteksi_tepi(matriks):
     tinggi, lebar = len(matriks), len(matriks[0])
+
     hasil = [[0 for _ in range(lebar)] for _ in range(tinggi)]
+
     for y in range(1, tinggi - 1):
         for x in range(1, lebar - 1):
-            atas   = matriks[y-1][x]
-            bawah  = matriks[y+1][x]
-            kiri   = matriks[y][x-1]
-            kanan  = matriks[y][x+1]
-            tengah = matriks[y][x]
 
-            # Rumus Laplacian 4-tetangga
-            nilai_tepi = (tengah * 4) - (atas + bawah + kiri + kanan)
+            # Ambil 8 piksel tetangga
+            kiri_atas     = matriks[y-1][x-1]
+            atas          = matriks[y-1][x]
+            kanan_atas    = matriks[y-1][x+1]
+
+            kiri          = matriks[y][x-1]
+            tengah        = matriks[y][x]
+            kanan         = matriks[y][x+1]
+
+            kiri_bawah    = matriks[y+1][x-1]
+            bawah         = matriks[y+1][x]
+            kanan_bawah   = matriks[y+1][x+1]
+
+            # Operator Laplacian 9 titik
+            nilai_tepi = abs(
+                (8 * tengah) -
+                (
+                    kiri_atas +
+                    atas +
+                    kanan_atas +
+                    kiri +
+                    kanan +
+                    kiri_bawah +
+                    bawah +
+                    kanan_bawah
+                )
+            )
+
             hasil[y][x] = batasi_nilai(nilai_tepi)
+
     return hasil
 
 
