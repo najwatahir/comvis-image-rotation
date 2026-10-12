@@ -95,7 +95,7 @@ def erosion(img, SE):
     return cv2.erode(
         img,
         SE,
-        iterations=1
+        iterations=2
     )
 
 
