@@ -58,14 +58,14 @@ def create_SE(
 
         SE = cv2.getStructuringElement(
             cv2.MORPH_CROSS,
-            (size,size)
+            (size, size)
         )
 
     else:
 
         SE = cv2.getStructuringElement(
             cv2.MORPH_RECT,
-            (size,size)
+            (size, size)
         )
 
     return SE
@@ -109,7 +109,8 @@ def opening(img, SE):
     return cv2.morphologyEx(
         img,
         cv2.MORPH_OPEN,
-        SE
+        SE,
+        iterations=5
     )
 
 
@@ -134,10 +135,28 @@ def closing(img, SE):
 
 def top_hat(img, SE):
 
-    return cv2.morphologyEx(
+    # Khusus Top-Hat, ukuran SE harus lebih besar dari ukuran bintang/fitur terang
+    # (namun lebih kecil dari kabut background) agar bintang tidak ikut terhapus.
+    if SE is None or SE.shape[0] <= 3:
+        ksize = max(31, (min(img.shape[:2]) // 12) | 1)
+        SE = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE,
+            (ksize, ksize)
+        )
+
+    res = cv2.morphologyEx(
         img,
         cv2.MORPH_TOPHAT,
         SE
+    )
+
+    # Normalisasi rentang intensitas ke 0-255 agar objek terang tampak jelas
+    return cv2.normalize(
+        res,
+        None,
+        0,
+        255,
+        cv2.NORM_MINMAX
     )
 
 
@@ -146,13 +165,65 @@ def top_hat(img, SE):
 # 6. HIT OR MISS
 # ==========================================================
 
-def hit_or_miss(img, SE):
+def hit_or_miss(img):
 
-    return cv2.morphologyEx(
-        img,
+    """
+    Hit-or-Miss: mendeteksi pola tertentu pada citra binary.
+    1 = harus putih, -1 = harus hitam, 0 = tidak peduli
+    """
+
+    patterns = {
+
+        # titik terisolasi (noise / bintik kecil)
+        "1": np.array([
+            [-1, -1, -1],
+            [-1,  1, -1],
+            [-1, -1, -1]
+        ], dtype=np.int32),
+
+        # sudut kiri-atas objek putih
+        "2": np.array([
+            [-1, -1, -1],
+            [-1,  1,  1],
+            [-1,  1,  0]
+        ], dtype=np.int32),
+
+        # ujung garis (garis vertikal berakhir di atas)
+        "3": np.array([
+            [-1, -1, -1],
+            [-1,  1, -1],
+            [ 0,  1,  0]
+        ], dtype=np.int32)
+    }
+
+    print("""
+Pilih pola Hit-or-Miss:
+1. Titik terisolasi
+2. Sudut kiri-atas
+3. Ujung garis
+""")
+
+    p = input("Pola : ")
+
+    if p not in patterns:
+        p = "1"
+
+    # pastikan binary 0 / 255
+    binary = (img > 0).astype(np.uint8) * 255
+
+    result = cv2.morphologyEx(
+        binary,
         cv2.MORPH_HITMISS,
-        SE
+        patterns[p]
     )
+
+    # hasilnya cuma titik 1 piksel, dibesarkan supaya terlihat
+    result = cv2.dilate(
+        result,
+        np.ones((5, 5), np.uint8)
+    )
+
+    return result
 
 
 
@@ -173,14 +244,11 @@ def skeletonization(img):
     Centerline skeleton
     """
 
-
     binary = img > 0
-
 
     skeleton = medial_axis(
         binary
     )
-
 
     return (
         skeleton.astype(np.uint8)
@@ -199,13 +267,12 @@ def thinning(img):
     """
     Thinning menggunakan
     OpenCV thinning algorithm.
+    (butuh opencv-contrib-python)
     """
-
 
     result = cv2.ximgproc.thinning(
         img
     )
-
 
     return result
 
@@ -225,12 +292,10 @@ def save_result(
         operation
     )
 
-
     os.makedirs(
         folder,
         exist_ok=True
     )
-
 
     filename = (
         "hasil_" +
@@ -238,18 +303,15 @@ def save_result(
         ".png"
     )
 
-
     path = os.path.join(
         folder,
         filename
     )
 
-
     cv2.imwrite(
         path,
         result
     )
-
 
     print("\n==============================")
     print("HASIL DISIMPAN")
@@ -260,60 +322,81 @@ def save_result(
 
 
 # ==========================================================
-# DISPLAY
+# DISPLAY (CITRA AWAL vs CITRA AKHIR)
 # ==========================================================
 
 def show_result(
-        before,
-        after,
-        title
+        original,
+        processed_input,
+        result,
+        title,
+        use_threshold=False
 ):
 
-    plt.figure(
-        figsize=(10,4)
+    # Kumpulkan gambar yang akan ditampilkan
+    images = [
+        (original, "CITRA AWAL")
+    ]
+
+    # Kalau pakai threshold otomatis, tampilkan juga tahap tengahnya
+    if use_threshold:
+        images.append(
+            (processed_input, "HASIL THRESHOLD")
+        )
+
+    images.append(
+        (result, "CITRA AKHIR\n" + title)
     )
 
+    total = len(images)
 
-    plt.subplot(
-        1,
-        2,
-        1
+    fig = plt.figure(
+        figsize=(4 * total, 4)
     )
 
-    plt.imshow(
-        before,
-        cmap="gray"
+    for i, (image, label) in enumerate(images):
+
+        plt.subplot(
+            1,
+            total,
+            i + 1
+        )
+
+        plt.imshow(
+            image,
+            cmap="gray"
+        )
+
+        plt.title(
+            label
+        )
+
+        plt.axis(
+            "off"
+        )
+
+    plt.tight_layout()
+
+    # Simpan gambar perbandingan
+    folder = "output_" + title
+
+    os.makedirs(
+        folder,
+        exist_ok=True
     )
 
-    plt.title(
-        "BEFORE"
+    compare_path = os.path.join(
+        folder,
+        "perbandingan_" + title + ".png"
     )
 
-    plt.axis(
-        "off"
+    fig.savefig(
+        compare_path,
+        dpi=150,
+        bbox_inches="tight"
     )
 
-
-
-    plt.subplot(
-        1,
-        2,
-        2
-    )
-
-    plt.imshow(
-        after,
-        cmap="gray"
-    )
-
-    plt.title(
-        title
-    )
-
-    plt.axis(
-        "off"
-    )
-
+    print("Perbandingan disimpan di :", compare_path)
 
     plt.show()
 
@@ -352,9 +435,7 @@ def menu():
 
 def main():
 
-
     operations = {
-
 
         "1":
         (
@@ -363,14 +444,12 @@ def main():
             True
         ),
 
-
         "2":
         (
             "EROSI",
             erosion,
             True
         ),
-
 
         "3":
         (
@@ -379,14 +458,12 @@ def main():
             True
         ),
 
-
         "4":
         (
             "CLOSING",
             closing,
             True
         ),
-
 
         "5":
         (
@@ -395,14 +472,12 @@ def main():
             True
         ),
 
-
         "6":
         (
             "HIT_OR_MISS",
             hit_or_miss,
-            True
+            False
         ),
-
 
         "7":
         (
@@ -410,7 +485,6 @@ def main():
             skeletonization,
             False
         ),
-
 
         "8":
         (
@@ -422,18 +496,13 @@ def main():
     }
 
 
-
     while True:
 
-
         menu()
-
 
         choice = input(
             "Pilih operasi : "
         )
-
-
 
         if choice == "0":
 
@@ -443,8 +512,6 @@ def main():
 
             break
 
-
-
         if choice not in operations:
 
             print(
@@ -453,16 +520,11 @@ def main():
 
             continue
 
-
-
         name, function, use_SE = operations[choice]
-
-
 
         path = input(
             "\nMasukkan path gambar : "
         )
-
 
         try:
 
@@ -470,14 +532,11 @@ def main():
                 path
             )
 
-
         except Exception as e:
 
             print(e)
 
             continue
-
-
 
         print("""
 ========================================
@@ -490,12 +549,9 @@ Apakah gambar sudah binary?
 ========================================
 """)
 
-
         binary_choice = input(
             "Pilihan : "
         )
-
-
 
         if binary_choice == "2":
 
@@ -507,42 +563,35 @@ Apakah gambar sudah binary?
 
             img_process = img
 
-
-
         if use_SE:
-
 
             SE = create_SE(
                 size=3,
                 shape="cross"
             )
 
-
             result = function(
                 img_process,
                 SE
             )
 
-
         else:
-
 
             result = function(
                 img_process
             )
-
-
 
         save_result(
             result,
             name
         )
 
-
         show_result(
-            img_process,
-            result,
-            name
+            img,                                # citra awal (asli)
+            img_process,                        # citra setelah threshold (jika ada)
+            result,                             # citra akhir
+            name,
+            use_threshold=(binary_choice == "2")
         )
 
 
